@@ -1,0 +1,2 @@
+gfortran -fdefault-integer-8 -c rdlist.f -ffixed-line-length-none -ffree-line-length-none
+gfortran -o xtest *.o -L/Users/james.thorpe/cfour/lib -lecp -lbox -llibr -lm -ldl -lpthread -L. -O3 -Drestrict=__restrict__  -DINT64  -std=c99 -march=native -cpp -ffixed-line-length-none -ffree-line-length-none -ffpe-summary=none -fdefault-integer-8 -fopenmp  -DINT64 -L/Users/jamesthorpe/LAPACK/lapack-3.7.0 -llapack -lblas
