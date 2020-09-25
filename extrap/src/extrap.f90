@@ -1,14 +1,16 @@
 ! E_X = E_inf + a/X^n
 program extrap
+  use nlslv
   implicit none
-  integer :: zmin,zmax,npair,nocc,ij
+  integer :: zmin,zmax,npair,nocc,ij,stat
   integer :: fid,idum,i,j
   real(kind=8) :: rdum,ztol
   integer, dimension(1:3) :: zeta
   real(kind=8), dimension(:), allocatable :: exptAA,fctrAA,ExAA
   real(kind=8), dimension(:), allocatable :: exptAB,fctrAB,ExAB
-  real(kind=8), dimension(:,:), allocatable :: AA,AB
-  real(kind=8) :: jac(1:3,1:3), prm(1:2,1:3),var(1:3)
+  real(kind=8), dimension(:,:), allocatable :: AA,AB,errAA,errAB
+  real(kind=8) :: var(1:2),prm(1:6),errF(1:2)
+  real(kind=8) :: Fjac(1:3,1:3)
 
   fid = 100
   ztol = 1.d-15
@@ -27,6 +29,10 @@ program extrap
   allocate(fctrAB(1:npair))
   allocate(ExAA(1:npair))
   allocate(ExAB(1:npair))
+  allocate(errAA(1:3,1:npair))
+  allocate(errAB(1:3,1:npair))
+  errAA = 0.d0
+  errAB = 0.d0
 
   !read AA
   do ij=1,npair 
@@ -56,10 +62,10 @@ program extrap
   read(*,*) zeta(1:2) 
   idum = maxval(zeta(1:2))
   do ij=1,npair 
-    fctrAA(ij) = (AA(zeta(1),ij) - AA(zeta(2),ij)) / (1.0/zeta(1)**exptAA(ij) - 1.d0/zeta(2)**exptAA(ij))  
+    fctrAA(ij) = (AA(zeta(2),ij) - AA(zeta(1),ij)) / (1.0/zeta(2)**exptAA(ij) - 1.d0/zeta(1)**exptAA(ij))  
     ExAA(ij) = Einf(idum,AA(idum,ij),fctrAA(ij),exptAA(ij)) 
   end do  
-  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair))
+  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair))
 
   write(*,*) "enter initial guess for AB exponent"
   read(*,*) rdum
@@ -68,10 +74,10 @@ program extrap
   read(*,*) zeta(1:2) 
   idum = maxval(zeta(1:2))
   do ij=1,npair 
-    fctrAB(ij) = (AB(zeta(1),ij) - AB(zeta(2),ij))/ (1.d0/zeta(1)**exptAB(ij) - 1.d0/zeta(2)**exptAB(ij))  
+    fctrAB(ij) = (AB(zeta(2),ij) - AB(zeta(1),ij))/ (1.d0/zeta(2)**exptAB(ij) - 1.d0/zeta(1)**exptAB(ij))  
     ExAB(ij) = Einf(idum,AB(idum,ij),fctrAB(ij),exptAB(ij)) 
   end do  
-  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair))
+  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair))
   
   !iterative procedure per pair
   ! each iterative procudure needs to determine a new fctr from the 
@@ -82,36 +88,40 @@ program extrap
   read(*,*) zeta(1:3)
   idum = maxval(zeta(1:3))
   do ij=1,npair
-!    call nr3(100,zeta(1:3),[AA(zeta(1),ij),AA(zeta(2),ij),AA(zeta(3),ij)],&
-!            ExAA(ij),fctrAA(ij),exptAA(ij),1.d-6,1.d-6)
-    call nr2(100,zeta(1:3),[AA(zeta(1),ij),AA(zeta(2),ij),AA(zeta(3),ij)],&
-             fctrAA(ij),exptAA(ij),1.d-6,1.d-6)
+    var = [fctrAA(ij),exptAA(ij)]
+    prm = [1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),AA(zeta(1),ij),AA(zeta(2),ij),AA(zeta(3),ij)]
+    call gcnr(2,6,var,prm(1:6),errF(1:2),errAA(1:2,ij),1.d-11,1.d-11,100,stat)
+    fctrAA(ij) = var(1)
+    exptAA(ij) = var(2)
+    
+!    call nr2(100,zeta(1:3),[AA(zeta(1),ij),AA(zeta(2),ij),AA(zeta(3),ij)],&
+!             fctrAA(ij),exptAA(ij),1.d-7,1.d-7)
+
     ExAA(ij) = Einf(idum,AA(idum,ij),fctrAA(ij),exptAA(ij))
+    errAA(3,ij) = abs(Einf(idum,AA(idum,ij),fctrAA(ij)+errAA(1,ij),exptAA(ij)+errAA(2,ij)) - ExAA(ij))
   end do 
-  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair))
+  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair))
 
   !AB
   write(*,*) "Solving for AB block"
+  write(*,*) "Enter zeta to use"
   read(*,*) zeta(1:3)
   idum = maxval(zeta(1:3))
   do ij=1,npair
-!    call nr3(100,zeta(1:3),[AB(zeta(1),ij),AB(zeta(2),ij),AB(zeta(3),ij)],&
-!            ExAB(ij),fctrAB(ij),exptAB(ij),1.d-6,1.d-6)
-    call nr2(100,zeta(1:3),[AB(zeta(1),ij),AB(zeta(2),ij),AB(zeta(3),ij)],&
-             fctrAB(ij),exptAB(ij),1.d-6,1.d-6)
-    ExAB(ij) = Einf(idum,AB(idum,ij),fctrAB(ij),exptAB(ij))
-  end do 
-  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair))
 
-!  write(*,*) "TESTING TESTING"
-!  write(*,*) "enter AA pair"
-!  read(*,*) ij
-!  write(*,*) "first guess"
-!  read(*,*) exptAA(ij)
-!  fctrAA(ij) = (AA(zeta(2),ij) - AA(zeta(3),ij)) / (1.0/zeta(2)**exptAA(ij) - 1.d0/zeta(3)**exptAA(ij))  
-!  ExAA(ij) = Einf(maxval(zeta(1:3)),AA(idum,ij),fctrAA(ij),exptAA(ij)) 
-!  call nr3(100,zeta(1:3),AA(zeta(1):zeta(3),ij),ExAA(ij),fctrAA(ij),exptAA(ij),1.d-6,1.d-10)
-!  write(*,*) "pair:",ij,":", ExAA(ij),fctrAA(ij),exptAA(ij)
+    var = [fctrAB(ij),exptAB(ij)]
+    prm = [1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),AB(zeta(1),ij),AB(zeta(2),ij),AB(zeta(3),ij)]
+    call gcnr(2,6,var(1:2),prm(1:6),errF(1:2),errAB(1:2,ij),1.d-11,1.d-11,100,stat)
+    fctrAB(ij) = var(1)
+    exptAB(ij) = var(2)
+
+!    call nr2(100,zeta(1:3),[AB(zeta(1),ij),AB(zeta(2),ij),AB(zeta(3),ij)],&
+!             fctrAB(ij),exptAB(ij),1.d-7,1.d-7)
+
+    ExAB(ij) = Einf(idum,AB(idum,ij),fctrAB(ij),exptAB(ij))
+    errAB(3,ij) = abs(Einf(idum,AB(idum,ij),fctrAB(ij)+errAB(1,ij),exptAB(ij)+errAB(2,ij)) - ExAB(ij))
+  end do 
+  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair))
 
   deallocate(AA)
   deallocate(AB)
@@ -121,6 +131,8 @@ program extrap
   deallocate(fctrAB)
   deallocate(ExAA)
   deallocate(ExAB)
+  deallocate(errAA)
+  deallocate(errAB)
   
 contains
 
@@ -141,17 +153,21 @@ subroutine Epair_print(npair,zmin,zmax,Epair)
   end do 
 end subroutine Epair_print
 
-subroutine Extrp_print(npair,Ex,fctr,expt)
+subroutine Extrp_print(npair,Ex,fctr,expt,errx)
   integer, intent(in) :: npair
   real(kind=8), dimension(1:npair) :: Ex,fctr,expt
+  real(kind=8), dimension(1:3,npair) :: errx
   integer :: ij
-  write(*,'(1x,A,15x,A,15x,A,15x,A)') "pair","Einf","factor","exponent"
-  write(*,*) "--------------------------------------------------"
+  write(*,'(1x,A,15x,A,24x,A,22x,A)') "pair","Einf","factor","exponent"
+  write(*,*) "--------------------------------------------------------------------------------------------------"
   do ij=1,npair
-    write(*,'(1x,I4,3(1x,F20.10))') ij,Ex(ij),fctr(ij),expt(ij)
+    write(*,'(1x,I4,3(1x,F15.10,1x,A,F9.6,A))') ij,Ex(ij),"(",errx(3,ij),")",&
+            fctr(ij),"(",errx(1,ij),")",expt(ij),"(",errx(2,ij),")"
+!    write(*,'(1x,I4,3(1x,F20.10))') ij,Ex(ij),fctr(ij),expt(ij)
+    
   end do 
-  write(*,*) "--------------------------------------------------"
-  write(*,'(1x,A,15x,A,15x,A,15x,A)') "   ","Einf","factor","exponent"
+  write(*,*) "--------------------------------------------------------------------------------------------------"
+  write(*,'(1x,A,14x,A,15x,A,15x,A)') "   ","Einf","factor","exponent"
   write(*,'(1x,A,1x,3(1x,F20.10))') "avg  ", nzavg(npair,Ex(1:npair)),&
                                              nzavg(npair,fctr(1:npair)),&
                                              nzavg(npair,expt(1:npair))
@@ -204,7 +220,7 @@ subroutine fvec2(zeta,Ezeta,fctr,expt,fv)
   real(kind=8), intent(inout) :: fv(1:2)
   integer :: j
   fv(1) = Ezeta(1) - Ezeta(2) - fctr*(1.d0/zeta(1)**(expt) - 1.d0/zeta(2)**(expt)) 
-  fv(2) = Ezeta(2) - Ezeta(3) - fctr*(1.d0/zeta(2)**(expt) - 1.d0/zeta(3)**(expt)) 
+  fv(2) = Ezeta(2) - Ezeta(3) - fctr*(1.d0/zeta(2)**(expt) - 1.d0/zeta(3)**(expt))
 end subroutine fvec2
 
 subroutine fvec3(zeta,Ezeta,Ex,fctr,expt,fv)
@@ -220,38 +236,38 @@ subroutine fvec3(zeta,Ezeta,Ex,fctr,expt,fv)
   !fv(1:3) = (/ (Ex - Ezeta(j) + fcrt/(1.d0*zeta(j))**(expt)), j=1,3/)
 end subroutine fvec3
 
-subroutine anjac2(zeta,fctr,expt,jac)
+subroutine anjac2(zeta,fctr,expt,Fjac)
   !analytical partial-deriv of fnc3 (assuming Ex,fctr,and expt are seperable)
   !f1 = EX - EY + a(1/Y^n - 1/X^n)
   !f2 = EY - EZ + a(1/Z^n - 1/Y^n)
   implicit none
   integer, intent(in) :: zeta(1:3)
   real(kind=8), intent(in) :: fctr,expt
-  real(kind=8), dimension(1:2,1:2), intent(inout) :: jac
+  real(kind=8), dimension(1:2,1:2), intent(inout) :: Fjac
   integer :: i
-  jac(1,1) = (1.d0/zeta(2)**expt - 1.d0/zeta(1)**expt)
-  jac(1,2) = fctr*(log(1.d0*zeta(1))/zeta(1)**expt - log(1.d0*zeta(2))/zeta(2)**expt) 
-  jac(2,1) = (1.d0/zeta(3)**expt - 1.d0/zeta(2)**expt)
-  jac(2,2) = fctr*(log(1.d0*zeta(2))/zeta(2)**expt - log(1.d0*zeta(3))/zeta(3)**expt) 
+  Fjac(1,1) = (1.d0/zeta(2)**expt - 1.d0/zeta(1)**expt)
+  Fjac(1,2) = fctr*(log(1.d0*zeta(1))/zeta(1)**expt - log(1.d0*zeta(2))/zeta(2)**expt) 
+  Fjac(2,1) = (1.d0/zeta(3)**expt - 1.d0/zeta(2)**expt)
+  Fjac(2,2) = fctr*(log(1.d0*zeta(2))/zeta(2)**expt - log(1.d0*zeta(3))/zeta(3)**expt)
 end subroutine anjac2
 
-subroutine anjac3(zeta,fctr,expt,jac)
+subroutine anjac3(zeta,fctr,expt,Fjac)
   !analytical partial-deriv of fnc3 (assuming Ex,fctr,and expt are seperable)
   ! F = Ex - Ezeta + a/zeta^n
   implicit none
   integer, intent(in) :: zeta(1:3)
   real(kind=8), intent(in) :: fctr,expt
-  real(kind=8), dimension(1:3,1:3), intent(inout) :: jac
+  real(kind=8), dimension(1:3,1:3), intent(inout) :: Fjac
   integer :: i
-  jac(1,1) = 1.d0 !dF/dEx = 1
-  jac(1,2) = (1.d0*zeta(1))**(-1.d0*expt) !dF/da
-  jac(1,3) = -1.d0*fctr*log(1.d0*zeta(1))/(zeta(1)**expt)!dF/dn 
-  jac(2,1) = 1.d0 !dF/dEx = 1
-  jac(2,2) = (1.d0*zeta(2))**(-1.d0*expt)
-  jac(2,3) = -1.d0*fctr*log(1.d0*zeta(2))/(zeta(2)**expt)!dF/dn 
-  jac(3,1) = 1.d0 !dF/dEx = 1
-  jac(3,1) = (1.d0*zeta(3))**(-1.d0*expt)
-  jac(3,3) = -1.d0*fctr*log(1.d0*zeta(3))/(zeta(3)**expt)!dF/dn 
+  Fjac(1,1) = 1.d0 !dF/dEx = 1
+  Fjac(1,2) = (1.d0*zeta(1))**(-1.d0*expt) !dF/da
+  Fjac(1,3) = -1.d0*fctr*log(1.d0*zeta(1))/(zeta(1)**expt)!dF/dn 
+  Fjac(2,1) = 1.d0 !dF/dEx = 1
+  Fjac(2,2) = (1.d0*zeta(2))**(-1.d0*expt)
+  Fjac(2,3) = -1.d0*fctr*log(1.d0*zeta(2))/(zeta(2)**expt)!dF/dn 
+  Fjac(3,1) = 1.d0 !dF/dEx = 1
+  Fjac(3,1) = (1.d0*zeta(3))**(-1.d0*expt)
+  Fjac(3,3) = -1.d0*fctr*log(1.d0*zeta(3))/(zeta(3)**expt)!dF/dn 
 end subroutine anjac3
 
 subroutine nr3(ntrial,zeta,Ezeta,Ex,fctr,expt,tolx,tolf)
@@ -261,7 +277,7 @@ subroutine nr3(ntrial,zeta,Ezeta,Ex,fctr,expt,tolx,tolf)
   real(kind=8), intent(in) :: Ezeta(1:3),tolx,tolf
   real(kind=8), intent(inout) :: Ex,fctr,expt
   integer :: i,k,p(1:3),stat
-  real(kind=8) :: errf,errx,jac(1:3,1:3),fv(1:3)
+  real(kind=8) :: errf,errx,Fjac(1:3,1:3),fv(1:3)
   real(kind=8) :: x(1:3),b(1:3)
   write(*,*) "hi hi hi"
   write(*,*) "input values:"
@@ -270,7 +286,7 @@ subroutine nr3(ntrial,zeta,Ezeta,Ex,fctr,expt,tolx,tolf)
   write(*,*) "Ex,fctr,expt",Ex,fctr,expt
   do k=1,ntrial
     call fvec3(zeta(1:3),Ezeta(1:3),Ex,fctr,expt,fv(1:3))
-    call anjac3(zeta(1:3),fctr,expt,jac(1:3,1:3))
+    call anjac3(zeta(1:3),fctr,expt,Fjac(1:3,1:3))
     errf = 0.d0
     do i=1,3
       errf = errf+abs(fv(i))
@@ -280,7 +296,7 @@ subroutine nr3(ntrial,zeta,Ezeta,Ex,fctr,expt,tolx,tolf)
     b = -1.d0*fv
 !    write(*,*) "bbefore",b
 !    write(*,*) "xbefore",x
-    call dgesv(3,1,jac(1:3,1:3),3,p(1:3),b(1:3),3,stat)
+    call dgesv(3,1,Fjac(1:3,1:3),3,p(1:3),b(1:3),3,stat)
 !    write(*,*) "stat is",stat
     Ex = Ex + b(1) 
     fctr = fctr + b(2) 
@@ -305,7 +321,7 @@ subroutine nr2(ntrial,zeta,Ezeta,fctr,expt,tolx,tolf)
   real(kind=8), intent(in) :: Ezeta(1:3),tolx,tolf
   real(kind=8), intent(inout) :: fctr,expt
   integer :: i,k,p(1:3),stat
-  real(kind=8) :: errf,errx,jac(1:2,1:2),fv(1:2)
+  real(kind=8) :: errf,errx,Fjac(1:2,1:2),fv(1:2)
   real(kind=8) :: x(1:2),b(1:2)
   write(*,*) "hi hi hi"
   write(*,*) "input values:"
@@ -313,8 +329,14 @@ subroutine nr2(ntrial,zeta,Ezeta,fctr,expt,tolx,tolf)
   write(*,*) "Ezeta:",Ezeta(1:3)
   write(*,*) "fctr,expt",fctr,expt
   do k=1,ntrial
-    call fvec2(zeta(1:3),Ezeta(1:3),fctr,expt,fv(1:2))
-    call anjac2(zeta(1:3),fctr,expt,jac(1:2,1:2))
+    write(*,*) "-------------------------------------"
+    write(*,*) "NR2 iter",k
+!    call fvec2(zeta(1:3),Ezeta(1:3),fctr,expt,fv(1:2))
+!    call anjac2(zeta(1:3),fctr,expt,Fjac(1:2,1:2))
+    call fnc(2,6,[fctr,expt],[1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),Ezeta(1),Ezeta(2),Ezeta(3)],&
+             fv(1:2))
+    call jac(2,6,[fctr,expt],[1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),Ezeta(1),Ezeta(2),Ezeta(3)],&
+             Fjac(1:2,1:2))
     errf = 0.d0
     do i=1,2
       errf = errf+abs(fv(i))
@@ -322,9 +344,8 @@ subroutine nr2(ntrial,zeta,Ezeta,fctr,expt,tolx,tolf)
     if(errf .le. tolf .and. k .gt. 1) return
     x(1:2) = [fctr,expt]
     b = -1.d0*fv
-    write(*,*) "bbefore",b
-    write(*,*) "xbefore",x
-    call dgesv(2,1,jac(1:2,1:2),2,p(1:2),b(1:2),2,stat)
+    write(*,*) "x old =",x
+    call dgesv(2,1,Fjac(1:2,1:2),2,p(1:2),b(1:2),2,stat)
 !    write(*,*) "stat is",stat
     fctr = fctr + b(1) 
     expt = expt + b(2) 
@@ -334,9 +355,7 @@ subroutine nr2(ntrial,zeta,Ezeta,fctr,expt,tolx,tolf)
     end do 
 !    write(*,*) "b =", b(1:3)
 !    write(*,*) 
-    write(*,*) "iter :", k
-    write(*,*) "x =", fctr,expt
-    write(*,*) "errf, errx",errf,errx
+    write(*,*) "x new =", fctr,expt
     if (errx .le. tolx .and. k .gt. 1) return
   end do 
 end subroutine nr2
