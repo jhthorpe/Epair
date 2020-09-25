@@ -2,10 +2,11 @@
 program extrap
   use nlslv
   implicit none
-  integer :: zmin,zmax,npair,nocc,ij,stat
+  integer :: zmin,zmax,npair,nocc,ij
   integer :: fid,idum,i,j
   real(kind=8) :: rdum,ztol
   integer, dimension(1:3) :: zeta
+  integer, dimension(:), allocatable :: statAA,statAB
   real(kind=8), dimension(:), allocatable :: exptAA,fctrAA,ExAA
   real(kind=8), dimension(:), allocatable :: exptAB,fctrAB,ExAB
   real(kind=8), dimension(:,:), allocatable :: AA,AB,errAA,errAB
@@ -31,8 +32,12 @@ program extrap
   allocate(ExAB(1:npair))
   allocate(errAA(1:3,1:npair))
   allocate(errAB(1:3,1:npair))
+  allocate(statAA(1:npair))
+  allocate(statAB(1:npair))
   errAA = 0.d0
   errAB = 0.d0
+  statAB = 0
+  statAA = 0
 
   !read AA
   do ij=1,npair 
@@ -65,7 +70,7 @@ program extrap
     fctrAA(ij) = (AA(zeta(2),ij) - AA(zeta(1),ij)) / (1.0/zeta(2)**exptAA(ij) - 1.d0/zeta(1)**exptAA(ij))  
     ExAA(ij) = Einf(idum,AA(idum,ij),fctrAA(ij),exptAA(ij)) 
   end do  
-  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair))
+  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair),statAA(1:npair))
 
   write(*,*) "enter initial guess for AB exponent"
   read(*,*) rdum
@@ -77,7 +82,7 @@ program extrap
     fctrAB(ij) = (AB(zeta(2),ij) - AB(zeta(1),ij))/ (1.d0/zeta(2)**exptAB(ij) - 1.d0/zeta(1)**exptAB(ij))  
     ExAB(ij) = Einf(idum,AB(idum,ij),fctrAB(ij),exptAB(ij)) 
   end do  
-  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair))
+  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair),statAB(1:npair))
   
   !iterative procedure per pair
   ! each iterative procudure needs to determine a new fctr from the 
@@ -90,7 +95,7 @@ program extrap
   do ij=1,npair
     var = [fctrAA(ij),exptAA(ij)]
     prm = [1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),AA(zeta(1),ij),AA(zeta(2),ij),AA(zeta(3),ij)]
-    call gcnr(2,6,var,prm(1:6),errF(1:2),errAA(1:2,ij),1.d-11,1.d-11,100,stat)
+    call gcnr(2,6,var,prm(1:6),errF(1:2),errAA(1:2,ij),1.d-11,1.d-11,100,statAA(ij))
     fctrAA(ij) = var(1)
     exptAA(ij) = var(2)
     
@@ -100,7 +105,7 @@ program extrap
     ExAA(ij) = Einf(idum,AA(idum,ij),fctrAA(ij),exptAA(ij))
     errAA(3,ij) = abs(Einf(idum,AA(idum,ij),fctrAA(ij)+errAA(1,ij),exptAA(ij)+errAA(2,ij)) - ExAA(ij))
   end do 
-  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair))
+  call Extrp_print(npair,ExAA(1:npair),fctrAA(1:npair),exptAA(1:npair),errAA(1:3,1:npair),statAA(1:npair))
 
   !AB
   write(*,*) "Solving for AB block"
@@ -111,7 +116,7 @@ program extrap
 
     var = [fctrAB(ij),exptAB(ij)]
     prm = [1.d0*zeta(1),1.d0*zeta(2),1.d0*zeta(3),AB(zeta(1),ij),AB(zeta(2),ij),AB(zeta(3),ij)]
-    call gcnr(2,6,var(1:2),prm(1:6),errF(1:2),errAB(1:2,ij),1.d-11,1.d-11,100,stat)
+    call gcnr(2,6,var(1:2),prm(1:6),errF(1:2),errAB(1:2,ij),1.d-11,1.d-11,100,statAB(ij))
     fctrAB(ij) = var(1)
     exptAB(ij) = var(2)
 
@@ -121,7 +126,7 @@ program extrap
     ExAB(ij) = Einf(idum,AB(idum,ij),fctrAB(ij),exptAB(ij))
     errAB(3,ij) = abs(Einf(idum,AB(idum,ij),fctrAB(ij)+errAB(1,ij),exptAB(ij)+errAB(2,ij)) - ExAB(ij))
   end do 
-  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair))
+  call Extrp_print(npair,ExAB(1:npair),fctrAB(1:npair),exptAB(1:npair),errAB(1:3,1:npair),statAB(1:npair))
 
   deallocate(AA)
   deallocate(AB)
@@ -153,16 +158,24 @@ subroutine Epair_print(npair,zmin,zmax,Epair)
   end do 
 end subroutine Epair_print
 
-subroutine Extrp_print(npair,Ex,fctr,expt,errx)
+subroutine Extrp_print(npair,Ex,fctr,expt,errx,stat)
   integer, intent(in) :: npair
-  real(kind=8), dimension(1:npair) :: Ex,fctr,expt
-  real(kind=8), dimension(1:3,npair) :: errx
+  integer, dimension(1:npair), intent(in) :: stat
+  real(kind=8), dimension(1:npair), intent(in) :: Ex,fctr,expt
+  real(kind=8), dimension(1:3,npair), intent(in) :: errx
   integer :: ij
   write(*,'(1x,A,15x,A,24x,A,22x,A)') "pair","Einf","factor","exponent"
   write(*,*) "--------------------------------------------------------------------------------------------------"
   do ij=1,npair
-    write(*,'(1x,I4,3(1x,F15.10,1x,A,F9.6,A))') ij,Ex(ij),"(",errx(3,ij),")",&
+    write(*,'(1x,I4,3(1x,F15.10,1x,A,F9.6,A))',advance='no') ij,Ex(ij),"(",errx(3,ij),")",&
             fctr(ij),"(",errx(1,ij),")",expt(ij),"(",errx(2,ij),")"
+    if (stat(ij) .eq. 1) then
+      write(*,'(1x,A)') "LOCAL"
+    else if (stat(ij) .eq. 2) then
+      write(*,'(1x,A)') "ERROR"
+    else
+      write(*,*)
+    end if
 !    write(*,'(1x,I4,3(1x,F20.10))') ij,Ex(ij),fctr(ij),expt(ij)
     
   end do 

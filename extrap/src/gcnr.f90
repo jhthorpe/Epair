@@ -114,6 +114,7 @@ subroutine gcnr(n,m,x,prm,errF,errx,tolF,tolx,maxit,stat)
     !check for spurious (local) convegence, indicated from 
     ! lnsrch
     if (stat .eq. 1) then
+      errX(1:n) = abs(x(1:n) - xold(1:n))
       rtmp = 0.d0
       den = max(f,0.5d0*n)
       do i=1,n
